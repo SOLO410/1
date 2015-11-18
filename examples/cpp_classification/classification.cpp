@@ -16,16 +16,21 @@
 using namespace caffe;  // NOLINT(build/namespaces)
 using std::string;
 
-/* Pair (label, confidence) representing a prediction. */
+/* Pair (label, confidence) representing a prediction. 
+  save the top N result(label and confidence)
+*/
 typedef std::pair<string, float> Prediction;
+
 
 class Classifier {
  public:
   Classifier(const string& model_file,
-             const string& trained_file,
+             const string& trained_file, //trained weights
              const string& mean_file,
              const string& label_file);
-
+  /*
+  use this function to classify a picture and output top N confidence
+  */
   std::vector<Prediction> Classify(const cv::Mat& img, int N = 5);
 
  private:
@@ -40,12 +45,13 @@ class Classifier {
 
  private:
   shared_ptr<Net<float> > net_;
-  cv::Size input_geometry_;
+  cv::Size input_geometry_;     //the size of input image (length and width)
   int num_channels_;
   cv::Mat mean_;
   std::vector<string> labels_;
 };
 
+//declare of constructor function
 Classifier::Classifier(const string& model_file,
                        const string& trained_file,
                        const string& mean_file,
@@ -57,8 +63,8 @@ Classifier::Classifier(const string& model_file,
 #endif
 
   /* Load the network. */
-  net_.reset(new Net<float>(model_file, TEST));
-  net_->CopyTrainedLayersFrom(trained_file);
+  net_.reset(new Net<float>(model_file, TEST)); //load the model
+  net_->CopyTrainedLayersFrom(trained_file);    //load the weights
 
   CHECK_EQ(net_->num_inputs(), 1) << "Network should have exactly one input.";
   CHECK_EQ(net_->num_outputs(), 1) << "Network should have exactly one output.";
@@ -147,6 +153,8 @@ void Classifier::SetMean(const string& mean_file) {
   cv::Scalar channel_mean = cv::mean(mean);
   mean_ = cv::Mat(input_geometry_, mean.type(), channel_mean);
 }
+
+
 
 std::vector<float> Classifier::Predict(const cv::Mat& img) {
   Blob<float>* input_layer = net_->input_blobs()[0];
