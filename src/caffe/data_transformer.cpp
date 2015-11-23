@@ -1,5 +1,6 @@
 #ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #endif  // USE_OPENCV
 
 #include <string>
@@ -234,30 +235,38 @@ namespace caffe {
   void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
     Blob<Dtype>* transformed_blob) {
     const int crop_size = param_.crop_size();
-    const int img_channels = cv_img.channels();
-    const int img_height = cv_img.rows;
-    const int img_width = cv_img.cols;
+    //@f:if the input picture is smaller then crop_size,expand it
+    cv::Mat cv_copy_img = cv_img;
+    if (crop_size > cv_img.rows || crop_size > cv_img.cols) {
+      int zoom = (double(crop_size/cv_img.rows)>double(crop_size/cv_img.cols))?floor(double(crop_size/cv_img.rows)):floor(double(crop_size/cv_img.cols)); 
+      cv::resize(cv_copy_img, cv_copy_img, cvSize(cv_img.cols*zoom,cv_img.rows*zoom));  //不改变长宽比放大，之后切割
+    }
+
+    const int img_channels = cv_copy_img.channels();
+    const int img_height = cv_copy_img.rows;
+    const int img_width = cv_copy_img.cols;
 
     // Check dimensions.
     const int channels = transformed_blob->channels();
     const int height = transformed_blob->height();
     const int width = transformed_blob->width();
-    const int num = transformed_blob->num();
+    const int num = transformed_blob->num();          //容器的容量
 
     CHECK_EQ(channels, img_channels); // ==
     CHECK_LE(height, img_height);   // <=
     CHECK_LE(width, img_width);     // <= 输入图片的宽高要大于等于blob的宽高（crop_size）
     CHECK_GE(num, 1);         // >=
 
-    CHECK(cv_img.depth() == CV_8U) << "Image data type must be unsigned byte";
+    CHECK(cv_copy_img.depth() == CV_8U) << "Image data type must be unsigned byte";
 
     const Dtype scale = param_.scale();
-    const bool do_mirror = param_.mirror() && Rand(2);  //随机的镜像
+    const bool do_blur = param_.blur() && (rand()%2); //随机模糊
+    const bool do_mirror = param_.mirror() && Rand(2);  //随机镜像
     const bool has_mean_file = param_.has_mean_file();
     const bool has_mean_values = mean_values_.size() > 0;
 
-    CHECK_GT(img_channels, 0);
-    CHECK_GE(img_height, crop_size);
+    CHECK_GT(img_channels, 0);        //>  通道大于0
+    CHECK_GE(img_height, crop_size);  //>= 输入图片的高度要大于等于crop_size
     CHECK_GE(img_width, crop_size);
 
     Dtype* mean = NULL;                 //均值处理
@@ -280,12 +289,12 @@ namespace caffe {
 
     int h_off = 0;                    //crop处理
     int w_off = 0;
-    cv::Mat cv_cropped_img = cv_img;
+    cv::Mat cv_cropped_img = cv_copy_img;
     if (crop_size) {
       CHECK_EQ(crop_size, height);
       CHECK_EQ(crop_size, width);
       // We only do random crop when we do training.
-      if (phase_ == TRAIN) {              //训练时随机剪切
+      if (phase_ == TRAIN) {              //训练时随机剪切,不过如果输入图片和crop_size同样大小，则不进行随机剪切
         h_off = Rand(img_height - crop_size + 1);
         w_off = Rand(img_width - crop_size + 1);
       }
@@ -294,14 +303,29 @@ namespace caffe {
         w_off = (img_width - crop_size) / 2;
       }
       cv::Rect roi(w_off, h_off, crop_size, crop_size);
-      cv_cropped_img = cv_img(roi);
+      cv_cropped_img = cv_copy_img(roi);
     }
     else {
       CHECK_EQ(img_height, height);
       CHECK_EQ(img_width, width);
     }
-
     CHECK(cv_cropped_img.data);
+
+    /*
+    USE ANY KINGS OF ALGORITHM TO EXPAND TRAIN DATA
+    //TODO 剪切和平移的算法可以合并，加快速度
+    //TODO 平移、旋转等变换
+    */
+    //const bool do_translation = param_.translation(); //平移
+    //const double min_scaling_factor = param_.min_scaling_factor();  //TODO
+    //const double max_scaling_factor = param_.max_scaling_factor();
+    //const int rotate_angle = param_.rotate_angle();
+    //const double max_shearing_ratio = param_.max_shearing_ratio();
+
+    if(do_blur){
+      blur(cv_cropped_img,cv_cropped_img,cv::Size(3,3));
+    }
+
 
     Dtype* transformed_data = transformed_blob->mutable_cpu_data(); //建立映射关系，将最后修改过的数值放入caffe的数据格式
     int top_index;                          //数据库数值索引
@@ -520,7 +544,7 @@ namespace caffe {
     vector<int> shape(4);
     shape[0] = 1;
     shape[1] = img_channels;
-    shape[2] = (crop_size) ? crop_size : img_height;  //??crop_size可以为0？？
+    shape[2] = (crop_size) ? crop_size : img_height;  
     shape[3] = (crop_size) ? crop_size : img_width;
     return shape;
   }
